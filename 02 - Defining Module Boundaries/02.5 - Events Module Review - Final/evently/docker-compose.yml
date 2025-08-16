@@ -1,4 +1,4 @@
-version: '3.9'
+# Remove this line: version: '3.9'
 
 services:
   evently.api:

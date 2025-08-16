@@ -1,4 +1,4 @@
-version: '3.4'
+# Remove this line: version: '3.4'
 
 services:
   evently.api:
@@ -10,5 +10,8 @@ services:
       - "8080"
       - "8081"
     volumes:
-      - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
-      - ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
+      #- ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
+      #- ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
+      # Mac-compatible volume mounts
+      - ~/.microsoft/usersecrets:/home/app/.microsoft/usersecrets:ro
+      - ~/.aspnet/https:/home/app/.aspnet/https:ro
