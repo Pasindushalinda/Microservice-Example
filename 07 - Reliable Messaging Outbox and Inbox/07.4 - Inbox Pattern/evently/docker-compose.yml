@@ -5,8 +5,8 @@ services:
     image: ${DOCKER_REGISTRY-}eventlyapi
     container_name: Evently.Api
     build:
-      context: .
-      dockerfile: src/API/Evently.Api/Dockerfile
+      context: ./src
+      dockerfile: API/Evently.Api/Dockerfile
     ports:
       - 5000:8080
       - 5001:8081
@@ -19,7 +19,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
     volumes:
-      - ./.containers/db:/var/lib/postgresql/data
+      - ./.containers/db:/var/lib/postgresql
     ports:
       - 5432:5432
 

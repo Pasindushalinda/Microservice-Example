@@ -5,10 +5,14 @@ using Evently.Common.Domain;
 using Evently.Common.Infrastructure.Authentication;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Evently.Common.Infrastructure.Authorization;
 
-internal sealed class CustomClaimsTransformation(IServiceScopeFactory serviceScopeFactory) : IClaimsTransformation
+internal sealed class CustomClaimsTransformation(
+    IServiceScopeFactory serviceScopeFactory,
+    ILogger<CustomClaimsTransformation> logger)
+    : IClaimsTransformation
 {
     public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
@@ -27,6 +31,15 @@ internal sealed class CustomClaimsTransformation(IServiceScopeFactory serviceSco
 
         if (result.IsFailure)
         {
+            if (result.Error.Type == ErrorType.NotFound)
+            {
+                logger.LogWarning(
+                    "Claims transformation skipped: no local user found for identity {IdentityId}",
+                    identityId);
+
+                return principal;
+            }
+
             throw new EventlyException(nameof(IPermissionService.GetUserPermissionsAsync), result.Error);
         }
 

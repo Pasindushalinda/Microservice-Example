@@ -86,4 +86,4 @@ app.MapEndpoints();
 
 app.Run();
 
-public partial class Program;
+internal partial class Program;
