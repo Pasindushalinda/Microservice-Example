@@ -35,17 +35,17 @@ public class Result
 
 public class Result<TValue> : Result
 {
-    private readonly TValue? _value;
+    private TValue? RawValue { get; }
 
     public Result(TValue? value, bool isSuccess, Error error)
         : base(isSuccess, error)
     {
-        _value = value;
+        RawValue = value;
     }
 
     [NotNull]
     public TValue Value => IsSuccess
-        ? _value!
+        ? RawValue!
         : throw new InvalidOperationException("The value of a failure result can't be accessed.");
 
     public static implicit operator Result<TValue>(TValue? value) =>
