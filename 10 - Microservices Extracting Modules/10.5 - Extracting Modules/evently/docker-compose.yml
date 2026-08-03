@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   evently.api:
     image: ${DOCKER_REGISTRY-}eventlyapi
@@ -39,7 +37,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
     volumes:
-      - ./.containers/db:/var/lib/postgresql/data
+      - ./.containers/db:/var/lib/postgresql
     ports:
       - 5432:5432
 

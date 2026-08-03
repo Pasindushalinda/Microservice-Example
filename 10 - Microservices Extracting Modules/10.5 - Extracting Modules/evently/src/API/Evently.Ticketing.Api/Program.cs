@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Evently.Common.Application;
 using Evently.Common.Infrastructure;
@@ -10,6 +11,7 @@ using Evently.Ticketing.Api.Middleware;
 using Evently.Ticketing.Api.OpenTelemetry;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using RabbitMQ.Client;
 using Serilog;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -44,7 +46,17 @@ Uri keyCloakHealthUrl = builder.Configuration.GetKeyCloakHealthUrl();
 builder.Services.AddHealthChecks()
     .AddNpgSql(databaseConnectionString)
     .AddRedis(redisConnectionString)
-    .AddRabbitMQ(rabbitConnectionString: rabbitMqSettings.Host)
+    .AddRabbitMQ(_ =>
+    {
+        var connectionFactory = new ConnectionFactory
+        {
+            Uri = new Uri(rabbitMqSettings.Host),
+            UserName = rabbitMqSettings.Username,
+            Password = rabbitMqSettings.Password
+        };
+
+        return connectionFactory.CreateConnectionAsync();
+    })
     .AddKeyCloak(keyCloakHealthUrl);
 
 builder.Configuration.AddModuleConfiguration(["ticketing"]);
@@ -80,4 +92,5 @@ app.MapEndpoints();
 
 app.Run();
 
+[SuppressMessage("Design", "CA1515", Justification = "Program must be public for WebApplicationFactory<Program> in integration tests.")]
 public partial class Program;

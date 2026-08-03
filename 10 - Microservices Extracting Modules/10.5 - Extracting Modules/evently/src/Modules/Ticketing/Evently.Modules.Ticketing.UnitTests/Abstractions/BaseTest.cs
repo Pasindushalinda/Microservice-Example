@@ -1,8 +1,10 @@
-﻿using Bogus;
+﻿using System.Diagnostics.CodeAnalysis;
+using Bogus;
 using Evently.Common.Domain;
 
 namespace Evently.Modules.Ticketing.UnitTests.Abstractions;
 
+[SuppressMessage("Design", "CA1515", Justification = "xUnit requires the base class of public test classes to be public.")]
 public abstract class BaseTest
 {
     protected static readonly Faker Faker = new();

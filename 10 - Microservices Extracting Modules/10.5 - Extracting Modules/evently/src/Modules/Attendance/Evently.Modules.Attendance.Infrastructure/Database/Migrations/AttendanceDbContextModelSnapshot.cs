@@ -19,7 +19,7 @@ namespace Evently.Modules.Attendance.Infrastructure.Database.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("attendance")
-                .HasAnnotation("ProductVersion", "8.0.3")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -34,7 +34,7 @@ namespace Evently.Modules.Attendance.Infrastructure.Database.Migrations
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
+                        .HasColumnType("jsonb")
                         .HasColumnName("content");
 
                     b.Property<string>("Error")
@@ -87,7 +87,7 @@ namespace Evently.Modules.Attendance.Infrastructure.Database.Migrations
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
+                        .HasColumnType("jsonb")
                         .HasColumnName("content");
 
                     b.Property<string>("Error")
@@ -212,7 +212,7 @@ namespace Evently.Modules.Attendance.Infrastructure.Database.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
-                    b.Property<List<string>>("DuplicateCheckInTickets")
+                    b.PrimitiveCollection<List<string>>("DuplicateCheckInTickets")
                         .IsRequired()
                         .HasColumnType("text[]")
                         .HasColumnName("duplicate_check_in_tickets");
@@ -221,7 +221,7 @@ namespace Evently.Modules.Attendance.Infrastructure.Database.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("ends_at_utc");
 
-                    b.Property<List<string>>("InvalidCheckInTickets")
+                    b.PrimitiveCollection<List<string>>("InvalidCheckInTickets")
                         .IsRequired()
                         .HasColumnType("text[]")
                         .HasColumnName("invalid_check_in_tickets");

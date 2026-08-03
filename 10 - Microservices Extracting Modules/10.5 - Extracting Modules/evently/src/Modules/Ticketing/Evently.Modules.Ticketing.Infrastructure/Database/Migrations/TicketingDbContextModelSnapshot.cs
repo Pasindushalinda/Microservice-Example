@@ -18,7 +18,7 @@ namespace Evently.Modules.Ticketing.Infrastructure.Database.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("ticketing")
-                .HasAnnotation("ProductVersion", "8.0.3")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -33,7 +33,7 @@ namespace Evently.Modules.Ticketing.Infrastructure.Database.Migrations
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
+                        .HasColumnType("jsonb")
                         .HasColumnName("content");
 
                     b.Property<string>("Error")
@@ -86,7 +86,7 @@ namespace Evently.Modules.Ticketing.Infrastructure.Database.Migrations
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
+                        .HasColumnType("jsonb")
                         .HasColumnName("content");
 
                     b.Property<string>("Error")
