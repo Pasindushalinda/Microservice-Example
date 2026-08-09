@@ -9,11 +9,11 @@
       "BatchSize": 50
     },
     "KeyCloak": {
-      "AdminUrl": "",
-      "TokenUrl": "",
-      "ConfidentialClientId": "",
-      "ConfidentialClientSecret": "",
-      "PublicClientId": ""
+      "AdminUrl": "http://evently-keycloak/admin/realms/evently/",
+      "TokenUrl": "http://evently-keycloak/realms/evently/protocol/openid-connect/token",
+      "ConfidentialClientId": "evently-confidential-client",
+      "ConfidentialClientSecret": "PzotcrvZRF9BHCKcUxdKfHWlIPECG49k",
+      "PublicClientId": "evently-public-client"
     }
   }
 }

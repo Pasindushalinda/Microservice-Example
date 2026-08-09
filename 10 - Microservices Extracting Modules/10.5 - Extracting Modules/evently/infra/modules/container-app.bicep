@@ -39,11 +39,13 @@ param secrets object = {}
 @description('Environment variables whose value comes from one of the secrets above: [{ name: envVarName, secretName: keyInSecretsObject }]')
 param secretEnvRefs array = []
 
-@description('Set true to pull the image from Azure Container Registry using this app\'s own system-assigned managed identity (no stored registry password). Requires an AcrPull role assignment on the registry, granted separately in main.bicep once this app\'s principal ID is known.')
-param useManagedIdentityForAcr bool = false
+@description('Resource ID of a pre-existing user-assigned managed identity to pull from ACR with, already granted AcrPull before this app is created. A system-assigned identity can\'t be used for this: it doesn\'t exist until the app resource is created, but the app can\'t finish creating until it can pull its image — a deadlock. Leave empty for apps that don\'t pull from ACR.')
+param acrPullIdentityId string = ''
 
-@description('ACR login server, required when useManagedIdentityForAcr is true')
+@description('ACR login server, required when acrPullIdentityId is set')
 param registryServer string = ''
+
+var useAcrPullIdentity = !empty(acrPullIdentityId)
 
 var secretsArray = [for key in items(secrets): {
   name: key.key
@@ -55,18 +57,21 @@ var secretEnvVarsArray = [for ref in secretEnvRefs: {
   secretRef: ref.secretName
 }]
 
-var registries = useManagedIdentityForAcr ? [
+var registries = useAcrPullIdentity ? [
   {
     server: registryServer
-    identity: 'system'
+    identity: acrPullIdentityId
   }
 ] : []
 
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: name
   location: location
-  identity: useManagedIdentityForAcr ? {
-    type: 'SystemAssigned'
+  identity: useAcrPullIdentity ? {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${acrPullIdentityId}': {}
+    }
   } : null
   properties: {
     managedEnvironmentId: environmentId
@@ -103,4 +108,3 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 
 output name string = containerApp.name
 output fqdn string = external ? containerApp.properties.configuration.ingress.fqdn : ''
-output principalId string = useManagedIdentityForAcr ? containerApp.identity.principalId : ''

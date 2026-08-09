@@ -20,6 +20,9 @@ param postgresAdminPassword string
 @secure()
 param keycloakAdminPassword string
 
+@secure()
+param seqAdminPassword string
+
 param postgresAdminLogin string = 'evently_admin'
 
 @description('Image tags to deploy — bump these (e.g. to a commit SHA) to roll out a new build without re-running the whole GitHub Actions matrix logic by hand')
@@ -30,7 +33,6 @@ param keycloakImageTag string = 'latest'
 
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var postgresServerName = '${namePrefix}-pg-${uniqueSuffix}'
-var redisName = '${namePrefix}-redis-${uniqueSuffix}'
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: acrName
@@ -38,6 +40,30 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
 
 resource containerEnv 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
   name: containerEnvName
+}
+
+// --- Shared ACR-pull identity, granted access before any container app exists ---
+// A container app's own system-assigned identity can't be used for its own image
+// pull: the identity doesn't exist until the app resource is created, but the app
+// can't finish creating until it can pull its image — a deadlock. This identity
+// is created and granted AcrPull up front, independent of any container app, so
+// every app that needs to pull from ACR can use it from its very first revision.
+
+resource acrPullIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${namePrefix}-acrpull-identity'
+  location: location
+}
+
+var acrPullRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+
+resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(acr.id, acrPullIdentity.id, 'AcrPull')
+  scope: acr
+  properties: {
+    roleDefinitionId: acrPullRoleDefinitionId
+    principalId: acrPullIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 module postgres 'modules/postgres.bicep' = {
@@ -50,17 +76,9 @@ module postgres 'modules/postgres.bicep' = {
   }
 }
 
-module redis 'modules/redis.bicep' = {
-  name: 'redis-deploy'
-  params: {
-    name: redisName
-    location: location
-  }
-}
-
 var dbConnectionString = 'Host=${postgres.outputs.fqdn};Port=5432;Database=evently;Username=${postgresAdminLogin};Password=${postgresAdminPassword};Include Error Detail=true;Ssl Mode=Require'
-var cacheConnectionString = '${redis.outputs.hostName}:${redis.outputs.sslPort},password=${redis.outputs.primaryKey},ssl=True,abortConnect=False'
-var queueConnectionString = 'amqp://evently-rabbitmq:5672'
+var cacheConnectionString = 'evently-redis:6379,abortConnect=False'
+var queueConnectionString = 'amqp://guest:guest@evently-rabbitmq:5672'
 
 var dbAndCacheAndQueueSecrets = {
   'db-connection-string': dbConnectionString
@@ -73,9 +91,28 @@ var dbAndCacheAndQueueRefs = [
   { name: 'ConnectionStrings__Queue', secretName: 'queue-connection-string' }
 ]
 
-// --- Supporting containers (RabbitMQ, Keycloak, Seq, Jaeger) ---
+// --- Supporting containers (Redis, RabbitMQ, Keycloak, Seq, Jaeger) ---
 // Deliberately guest/guest on RabbitMQ + its management UI made public: accepted
 // risk, decided explicitly — see plan file for the reasoning.
+//
+// Redis runs as a plain container instead of Azure Cache for Redis: Microsoft
+// is retiring Microsoft.Cache/redis for new deployments in favor of Azure
+// Managed Redis, which is a bigger (and pricier) resource than this lab needs.
+// Internal-only ingress (external: false), no auth — matches the trust model
+// already accepted for RabbitMQ's AMQP port.
+
+module redis 'modules/container-app.bicep' = {
+  name: 'redis-deploy'
+  params: {
+    name: 'evently-redis'
+    location: location
+    environmentId: containerEnv.id
+    image: 'redis:7-alpine'
+    targetPort: 6379
+    transport: 'tcp'
+    external: false
+  }
+}
 
 module rabbitmq 'modules/container-app.bicep' = {
   name: 'rabbitmq-deploy'
@@ -105,7 +142,7 @@ module keycloak 'modules/container-app.bicep' = {
     image: '${acr.properties.loginServer}/evently-keycloak:${keycloakImageTag}'
     targetPort: 8080
     external: true
-    useManagedIdentityForAcr: true
+    acrPullIdentityId: acrPullIdentity.id
     registryServer: acr.properties.loginServer
     args: [ 'start-dev', '--import-realm' ]
     envVars: [
@@ -139,6 +176,12 @@ module seq 'modules/container-app.bicep' = {
     envVars: [
       { name: 'ACCEPT_EULA', value: 'Y' }
     ]
+    secrets: {
+      'seq-admin-password': seqAdminPassword
+    }
+    secretEnvRefs: [
+      { name: 'SEQ_FIRSTRUN_ADMINPASSWORD', secretName: 'seq-admin-password' }
+    ]
   }
 }
 
@@ -168,7 +211,7 @@ module api 'modules/container-app.bicep' = {
     image: '${acr.properties.loginServer}/evently-api:${apiImageTag}'
     targetPort: 8080
     external: false
-    useManagedIdentityForAcr: true
+    acrPullIdentityId: acrPullIdentity.id
     registryServer: acr.properties.loginServer
     secrets: dbAndCacheAndQueueSecrets
     secretEnvRefs: dbAndCacheAndQueueRefs
@@ -184,7 +227,7 @@ module ticketingApi 'modules/container-app.bicep' = {
     image: '${acr.properties.loginServer}/evently-ticketing-api:${ticketingImageTag}'
     targetPort: 8080
     external: false
-    useManagedIdentityForAcr: true
+    acrPullIdentityId: acrPullIdentity.id
     registryServer: acr.properties.loginServer
     secrets: dbAndCacheAndQueueSecrets
     secretEnvRefs: dbAndCacheAndQueueRefs
@@ -200,7 +243,7 @@ module gateway 'modules/container-app.bicep' = {
     image: '${acr.properties.loginServer}/evently-gateway:${gatewayImageTag}'
     targetPort: 8080
     external: true
-    useManagedIdentityForAcr: true
+    acrPullIdentityId: acrPullIdentity.id
     registryServer: acr.properties.loginServer
   }
   // Not a functional dependency (Gateway's routing config points at evently-api /
@@ -210,50 +253,6 @@ module gateway 'modules/container-app.bicep' = {
     api
     ticketingApi
   ]
-}
-
-// --- Grant each ACR-backed app's managed identity pull access, instead of a stored registry password ---
-
-var acrPullRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-
-resource apiAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, 'evently-api', 'AcrPull')
-  scope: acr
-  properties: {
-    roleDefinitionId: acrPullRoleDefinitionId
-    principalId: api.outputs.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource ticketingApiAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, 'evently-ticketing-api', 'AcrPull')
-  scope: acr
-  properties: {
-    roleDefinitionId: acrPullRoleDefinitionId
-    principalId: ticketingApi.outputs.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource gatewayAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, 'evently-gateway', 'AcrPull')
-  scope: acr
-  properties: {
-    roleDefinitionId: acrPullRoleDefinitionId
-    principalId: gateway.outputs.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource keycloakAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, 'evently-keycloak', 'AcrPull')
-  scope: acr
-  properties: {
-    roleDefinitionId: acrPullRoleDefinitionId
-    principalId: keycloak.outputs.principalId
-    principalType: 'ServicePrincipal'
-  }
 }
 
 output gatewayUrl string = 'https://${gateway.outputs.fqdn}'

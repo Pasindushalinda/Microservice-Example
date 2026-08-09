@@ -9,10 +9,16 @@
       "value": "evently"
     },
     "acrName": {
-      "value": ""
+      "value": "eventlyacrhc5ho5pny2iys"
     },
     "containerEnvName": {
       "value": "evently-env"
+    },
+    "keycloakAdminPassword": {
+      "value": "Ev3ntly!KcAdmin2026"
+    },
+    "seqAdminPassword": {
+      "value": "Ev3ntly!SeqAdmin2026"
     }
   }
 }

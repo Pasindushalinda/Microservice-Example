@@ -66,7 +66,7 @@ builder.Services.AddHealthChecks()
     })
     .AddKeyCloak(keyCloakHealthUrl);
 
-builder.Configuration.AddModuleConfiguration(["users", "events", "attendance"]);
+builder.Configuration.AddModuleConfiguration(["users", "events", "attendance"], builder.Environment);
 
 builder.Services.AddEventsModule(builder.Configuration);
 
