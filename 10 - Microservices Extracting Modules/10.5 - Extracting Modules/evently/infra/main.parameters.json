@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "centralindia"
+    },
+    "namePrefix": {
+      "value": "evently"
+    },
+    "acrName": {
+      "value": "eventlyacrhc5ho5pny2iys"
+    },
+    "containerEnvName": {
+      "value": "evently-env"
+    },
+    "keycloakAdminPassword": {
+      "value": "Ev3ntly!KcAdmin2026"
+    },
+    "seqAdminPassword": {
+      "value": "Ev3ntly!SeqAdmin2026"
+    }
+  }
+}

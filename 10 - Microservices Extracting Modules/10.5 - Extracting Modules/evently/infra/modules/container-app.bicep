@@ -1,0 +1,110 @@
+@description('Container app name — this is also its internal DNS name inside the environment (http://<name>) and, if externally exposed, the subdomain of its public URL')
+param name string
+
+param location string = resourceGroup().location
+
+@description('Resource ID of the shared Microsoft.App/managedEnvironments this app runs in')
+param environmentId string
+
+@description('Full image reference, e.g. "myacr.azurecr.io/evently-api:abc123" or a public image like "datalust/seq:latest"')
+param image string
+
+@description('Port the container listens on for its main ingress')
+param targetPort int
+
+@description('Whether the main ingress gets a public https:// URL (true) or is only reachable from other apps in the environment (false)')
+param external bool = false
+
+@description('"http" for a web app/API, "tcp" for a raw protocol port')
+param transport string = 'http'
+
+@description('Extra ports beyond the main one, e.g. RabbitMQ AMQP (5672) alongside its management UI, or Jaeger OTLP (4317) alongside its UI (16686). Each item: { external: bool, targetPort: int, exposedPort: int }')
+param additionalPortMappings array = []
+
+param cpu string = '0.5'
+param memory string = '1Gi'
+param minReplicas int = 1
+param maxReplicas int = 1
+
+@description('Container entrypoint args, e.g. ["start-dev", "--import-realm"] for Keycloak')
+param args array = []
+
+@description('Plain (non-secret) environment variables: [{ name, value }]')
+param envVars array = []
+
+@description('Secret values for this app, keyed by secret name — pass real values only from a secure parameter at the top level, never hardcode a real secret here')
+@secure()
+param secrets object = {}
+
+@description('Environment variables whose value comes from one of the secrets above: [{ name: envVarName, secretName: keyInSecretsObject }]')
+param secretEnvRefs array = []
+
+@description('Resource ID of a pre-existing user-assigned managed identity to pull from ACR with, already granted AcrPull before this app is created. A system-assigned identity can\'t be used for this: it doesn\'t exist until the app resource is created, but the app can\'t finish creating until it can pull its image — a deadlock. Leave empty for apps that don\'t pull from ACR.')
+param acrPullIdentityId string = ''
+
+@description('ACR login server, required when acrPullIdentityId is set')
+param registryServer string = ''
+
+var useAcrPullIdentity = !empty(acrPullIdentityId)
+
+var secretsArray = [for key in items(secrets): {
+  name: key.key
+  value: key.value
+}]
+
+var secretEnvVarsArray = [for ref in secretEnvRefs: {
+  name: ref.name
+  secretRef: ref.secretName
+}]
+
+var registries = useAcrPullIdentity ? [
+  {
+    server: registryServer
+    identity: acrPullIdentityId
+  }
+] : []
+
+resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
+  name: name
+  location: location
+  identity: useAcrPullIdentity ? {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${acrPullIdentityId}': {}
+    }
+  } : null
+  properties: {
+    managedEnvironmentId: environmentId
+    configuration: {
+      ingress: {
+        external: external
+        targetPort: targetPort
+        transport: transport
+        additionalPortMappings: additionalPortMappings
+      }
+      secrets: secretsArray
+      registries: registries
+    }
+    template: {
+      containers: [
+        {
+          name: name
+          image: image
+          args: args
+          resources: {
+            cpu: json(cpu)
+            memory: memory
+          }
+          env: concat(envVars, secretEnvVarsArray)
+        }
+      ]
+      scale: {
+        minReplicas: minReplicas
+        maxReplicas: maxReplicas
+      }
+    }
+  }
+}
+
+output name string = containerApp.name
+output fqdn string = external ? containerApp.properties.configuration.ingress.fqdn : ''
