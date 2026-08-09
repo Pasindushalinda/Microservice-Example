@@ -1,4 +1,4 @@
-name: Deploy to Azure Container Apps
+name: Evently 10.5 - Deploy to Azure Container Apps
 
 on:
   workflow_dispatch: {}
@@ -8,6 +8,7 @@ permissions:
   contents: read
 
 env:
+  APP_DIR: "10 - Microservices Extracting Modules/10.5 - Extracting Modules/evently"
   RESOURCE_GROUP: rg-evently
   ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
 
@@ -43,8 +44,8 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ${{ matrix.dockerfile }}
+          context: ${{ env.APP_DIR }}
+          file: ${{ env.APP_DIR }}/${{ matrix.dockerfile }}
           push: true
           tags: ${{ env.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}
 
