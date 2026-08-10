@@ -127,6 +127,10 @@ jobs:
         if: ${{ inputs.run_migrations }}
         run: dotnet tool install --global dotnet-ef
 
+      - name: Restore NuGet packages
+        if: ${{ inputs.run_migrations }}
+        run: dotnet restore Evently.sln
+
       - name: Open Postgres firewall for this runner
         if: ${{ inputs.run_migrations }}
         id: firewall
