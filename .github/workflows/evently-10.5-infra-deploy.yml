@@ -131,6 +131,10 @@ jobs:
         if: ${{ inputs.run_migrations }}
         run: dotnet restore Evently.sln
 
+      - name: Build solution
+        if: ${{ inputs.run_migrations }}
+        run: dotnet build Evently.sln --no-restore
+
       - name: Open Postgres firewall for this runner
         if: ${{ inputs.run_migrations }}
         id: firewall
