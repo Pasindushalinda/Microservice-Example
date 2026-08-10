@@ -1,0 +1,165 @@
+name: Evently 10.5 - Full Infra Deploy to Azure Container Apps
+
+# Runs the whole RUNBOOK.md sequence in one shot: bootstrap (ACR, Log
+# Analytics, Container Apps environment), bake the resulting public domain
+# into the 3 services if it changed, build all 4 images, deploy Postgres +
+# the 7 container apps via main.bicep, then apply EF Core migrations.
+#
+# Use this for a fresh `rg-evently` (or after it was deleted/recreated). For
+# routine code-only redeploys against infra that already exists, use the
+# "Evently 10.5 - Deploy to Azure Container Apps" workflow instead.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: "Apply EF Core migrations after the infra deploy"
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  RESOURCE_GROUP: rg-evently
+  LOCATION: centralindia
+
+jobs:
+  deploy-infra:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/10 - Microservices Extracting Modules/10.5 - Extracting Modules/evently
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create resource group
+        run: az group create --name ${{ env.RESOURCE_GROUP }} --location ${{ env.LOCATION }}
+
+      - name: Bootstrap (ACR, Log Analytics, Container Apps environment)
+        id: bootstrap
+        run: |
+          az deployment group create -g ${{ env.RESOURCE_GROUP }} -n bootstrap \
+            --template-file infra/bootstrap.bicep \
+            --parameters infra/bootstrap.parameters.json
+
+          OUTPUTS=$(az deployment group show -g ${{ env.RESOURCE_GROUP }} -n bootstrap --query properties.outputs -o json)
+          echo "acr_name=$(echo "$OUTPUTS" | jq -r .acrName.value)" >> "$GITHUB_OUTPUT"
+          echo "acr_login_server=$(echo "$OUTPUTS" | jq -r .acrLoginServer.value)" >> "$GITHUB_OUTPUT"
+          echo "container_env_name=$(echo "$OUTPUTS" | jq -r .containerEnvName.value)" >> "$GITHUB_OUTPUT"
+          echo "domain=$(echo "$OUTPUTS" | jq -r .containerAppsDefaultDomain.value)" >> "$GITHUB_OUTPUT"
+
+      - name: Bake new domain into appsettings.json if it changed
+        id: rebake
+        run: |
+          NEW_DOMAIN="${{ steps.bootstrap.outputs.domain }}"
+          OLD_DOMAIN=$(grep -oE 'evently-keycloak\.[a-z0-9.-]+\.azurecontainerapps\.io' src/API/Evently.Api/appsettings.json | head -1 | sed 's/evently-keycloak\.//')
+
+          if [ "$OLD_DOMAIN" = "$NEW_DOMAIN" ]; then
+            echo "Domain unchanged ($NEW_DOMAIN) — nothing to bake in."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Domain changed: $OLD_DOMAIN -> $NEW_DOMAIN"
+          find src/API -maxdepth 2 -name appsettings.json \
+            -exec sed -i "s/${OLD_DOMAIN//./\\.}/${NEW_DOMAIN}/g" {} +
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/API/Evently.Api/appsettings.json \
+                  src/API/Evently.Ticketing.Api/appsettings.json \
+                  src/API/Evently.Gateway/appsettings.json
+          git commit -m "Point config at new Container Apps domain ($NEW_DOMAIN)"
+          git push origin HEAD:${{ github.ref_name }}
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push images to ACR
+        run: |
+          ACR="${{ steps.bootstrap.outputs.acr_name }}"
+          az acr build --registry "$ACR" --image evently-api:${{ github.sha }} \
+            -f src/API/Evently.Api/Dockerfile .
+          az acr build --registry "$ACR" --image evently-ticketing-api:${{ github.sha }} \
+            -f src/API/Evently.Ticketing.Api/Dockerfile .
+          az acr build --registry "$ACR" --image evently-gateway:${{ github.sha }} \
+            -f src/API/Evently.Gateway/Dockerfile .
+          az acr build --registry "$ACR" --image evently-keycloak:${{ github.sha }} \
+            -f infra/keycloak/Dockerfile infra/keycloak
+
+      - name: Deploy Postgres, Redis, and the 7 container apps
+        id: main_deploy
+        run: |
+          az deployment group create -g ${{ env.RESOURCE_GROUP }} -n main \
+            --template-file infra/main.bicep \
+            --parameters infra/main.parameters.json \
+            --parameters \
+              acrName=${{ steps.bootstrap.outputs.acr_name }} \
+              containerEnvName=${{ steps.bootstrap.outputs.container_env_name }} \
+              apiImageTag=${{ github.sha }} \
+              ticketingImageTag=${{ github.sha }} \
+              gatewayImageTag=${{ github.sha }} \
+              keycloakImageTag=${{ github.sha }} \
+              postgresAdminPassword='${{ secrets.AZURE_POSTGRES_ADMIN_PASSWORD }}' \
+              keycloakAdminPassword='${{ secrets.AZURE_KEYCLOAK_ADMIN_PASSWORD }}' \
+              seqAdminPassword='${{ secrets.AZURE_SEQ_ADMIN_PASSWORD }}'
+
+          OUTPUTS=$(az deployment group show -g ${{ env.RESOURCE_GROUP }} -n main --query properties.outputs -o json)
+          echo "$OUTPUTS"
+          echo "gateway_url=$(echo "$OUTPUTS" | jq -r .gatewayUrl.value)" >> "$GITHUB_OUTPUT"
+          echo "keycloak_url=$(echo "$OUTPUTS" | jq -r .keycloakUrl.value)" >> "$GITHUB_OUTPUT"
+          echo "seq_url=$(echo "$OUTPUTS" | jq -r .seqUrl.value)" >> "$GITHUB_OUTPUT"
+          echo "jaeger_url=$(echo "$OUTPUTS" | jq -r .jaegerUrl.value)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up .NET
+        if: ${{ inputs.run_migrations }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install dotnet-ef
+        if: ${{ inputs.run_migrations }}
+        run: dotnet tool install --global dotnet-ef
+
+      - name: Open Postgres firewall for this runner
+        if: ${{ inputs.run_migrations }}
+        id: firewall
+        run: |
+          RUNNER_IP=$(curl -s https://ifconfig.me)
+          PG_SERVER=$(az postgres flexible-server list -g ${{ env.RESOURCE_GROUP }} --query "[0].name" -o tsv)
+          RULE_NAME="gh-actions-run-${{ github.run_id }}"
+
+          az postgres flexible-server firewall-rule create -g ${{ env.RESOURCE_GROUP }} --name "$PG_SERVER" \
+            --rule-name "$RULE_NAME" --start-ip-address "$RUNNER_IP" --end-ip-address "$RUNNER_IP"
+
+          echo "pg_server=$PG_SERVER" >> "$GITHUB_OUTPUT"
+          echo "rule_name=$RULE_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Apply EF Core migrations
+        if: ${{ inputs.run_migrations }}
+        env:
+          CONN: "Host=${{ steps.firewall.outputs.pg_server }}.postgres.database.azure.com;Database=evently;Username=evently_admin;Password=${{ secrets.AZURE_POSTGRES_ADMIN_PASSWORD }};Ssl Mode=Require"
+        run: |
+          dotnet ef database update -c UsersDbContext -s src/API/Evently.Api -p src/Modules/Users/Evently.Modules.Users.Infrastructure --connection "$CONN"
+          dotnet ef database update -c EventsDbContext -s src/API/Evently.Api -p src/Modules/Events/Evently.Modules.Events.Infrastructure --connection "$CONN"
+          dotnet ef database update -c AttendanceDbContext -s src/API/Evently.Api -p src/Modules/Attendance/Evently.Modules.Attendance.Infrastructure --connection "$CONN"
+          dotnet ef database update -c TicketingDbContext -s src/API/Evently.Ticketing.Api -p src/Modules/Ticketing/Evently.Modules.Ticketing.Infrastructure --connection "$CONN"
+
+      - name: Close Postgres firewall hole
+        if: ${{ always() && inputs.run_migrations && steps.firewall.outputs.rule_name != '' }}
+        run: |
+          az postgres flexible-server firewall-rule delete -g ${{ env.RESOURCE_GROUP }} --name "${{ steps.firewall.outputs.pg_server }}" \
+            --rule-name "${{ steps.firewall.outputs.rule_name }}" --yes
+
+      - name: Print service URLs
+        run: |
+          echo "Gateway:  ${{ steps.main_deploy.outputs.gateway_url }}"
+          echo "Keycloak: ${{ steps.main_deploy.outputs.keycloak_url }}"
+          echo "Seq:      ${{ steps.main_deploy.outputs.seq_url }}"
+          echo "Jaeger:   ${{ steps.main_deploy.outputs.jaeger_url }}"

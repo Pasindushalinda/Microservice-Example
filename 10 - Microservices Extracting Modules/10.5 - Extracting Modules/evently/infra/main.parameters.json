@@ -13,12 +13,6 @@
     },
     "containerEnvName": {
       "value": "evently-env"
-    },
-    "keycloakAdminPassword": {
-      "value": "Ev3ntly!KcAdmin2026"
-    },
-    "seqAdminPassword": {
-      "value": "Ev3ntly!SeqAdmin2026"
     }
   }
 }
