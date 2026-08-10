@@ -131,12 +131,13 @@ jobs:
         if: ${{ inputs.run_migrations }}
         id: firewall
         run: |
-          RUNNER_IP=$(curl -s https://ifconfig.me)
           PG_SERVER=$(az postgres flexible-server list -g ${{ env.RESOURCE_GROUP }} --query "[0].name" -o tsv)
           RULE_NAME="gh-actions-run-${{ github.run_id }}"
 
-          az postgres flexible-server firewall-rule create -g ${{ env.RESOURCE_GROUP }} --name "$PG_SERVER" \
-            --rule-name "$RULE_NAME" --start-ip-address "$RUNNER_IP" --end-ip-address "$RUNNER_IP"
+          # GitHub-hosted runners don't have a stable/predictable IP, so this opens the
+          # full range for the duration of this job only — closed again in the last step.
+          az postgres flexible-server firewall-rule create -g ${{ env.RESOURCE_GROUP }} --server-name "$PG_SERVER" \
+            --name "$RULE_NAME" --start-ip-address 0.0.0.0 --end-ip-address 255.255.255.255
 
           echo "pg_server=$PG_SERVER" >> "$GITHUB_OUTPUT"
           echo "rule_name=$RULE_NAME" >> "$GITHUB_OUTPUT"
@@ -154,8 +155,8 @@ jobs:
       - name: Close Postgres firewall hole
         if: ${{ always() && inputs.run_migrations && steps.firewall.outputs.rule_name != '' }}
         run: |
-          az postgres flexible-server firewall-rule delete -g ${{ env.RESOURCE_GROUP }} --name "${{ steps.firewall.outputs.pg_server }}" \
-            --rule-name "${{ steps.firewall.outputs.rule_name }}" --yes
+          az postgres flexible-server firewall-rule delete -g ${{ env.RESOURCE_GROUP }} --server-name "${{ steps.firewall.outputs.pg_server }}" \
+            --name "${{ steps.firewall.outputs.rule_name }}" --yes
 
       - name: Print service URLs
         run: |
