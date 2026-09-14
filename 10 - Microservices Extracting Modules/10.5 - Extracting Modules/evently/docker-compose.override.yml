@@ -37,3 +37,26 @@ services:
     volumes:
       - ${HOME}/.microsoft/usersecrets:/home/app/.microsoft/usersecrets:ro
       - ${HOME}/.aspnet/https:/home/app/.aspnet/https:ro
+
+  # Mcp and Ai.Api are internal-only — nothing calls them over HTTPS (every
+  # Evently:*Url in this repo is http://), so unlike the three services above
+  # they deliberately don't set ASPNETCORE_HTTPS_PORTS / a Kestrel cert path.
+  # Doing so requires a Evently.{Mcp,Ai.Api}.pfx dev cert that was never
+  # generated, which makes Kestrel throw on startup.
+  evently.mcp:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+    ports:
+      - "8080"
+    volumes:
+      - ${HOME}/.microsoft/usersecrets:/home/app/.microsoft/usersecrets:ro
+
+  evently.ai.api:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+    ports:
+      - "8080"
+    volumes:
+      - ${HOME}/.microsoft/usersecrets:/home/app/.microsoft/usersecrets:ro

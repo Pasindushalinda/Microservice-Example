@@ -29,6 +29,24 @@ services:
       - 3000:8080
       - 3001:8081
 
+  evently.mcp:
+    image: ${DOCKER_REGISTRY-}eventlymcp
+    container_name: Evently.Mcp
+    build:
+      context: .
+      dockerfile: src/API/Evently.Mcp/Dockerfile
+    ports:
+      - 5050:8080
+
+  evently.ai.api:
+    image: ${DOCKER_REGISTRY-}eventlyaiapi
+    container_name: Evently.Ai.Api
+    build:
+      context: .
+      dockerfile: src/API/Evently.Ai.Api/Dockerfile
+    ports:
+      - 5060:8080
+
   evently.database:
     image: postgres:latest
     container_name: Evently.Database
